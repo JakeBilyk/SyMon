@@ -12,7 +12,7 @@ function Dashboard() {
       'D13', 'D14', 'D15', 'D16', 'D17', 'D18',
       'D19', 'D20', 'D21', 'D22', 'D23', 'D24',
       'D25', 'D26', 'E01', 'E02', 'E03', 'E04',
-      'E05', 'X01', 'X02', 'X03', 'X04',
+      'E05', 'L01', 'L02', 'X01', 'X02', 'X03', 'X04',
     ];
 
     // Fetch data for all tanks
@@ -25,6 +25,7 @@ function Dashboard() {
         })
       );
       setTankData(allData);
+      console.log('All tank data:', allData); // Debugging line
     };
 
     fetchTankData();
@@ -73,8 +74,14 @@ function Dashboard() {
   return (
     <div>
       <h1>Tank Data Dashboard</h1>
+      {/* Download button for log file */}
+      <div style={{ marginBottom: '20px' }}>
+        <a href="/download-log" download>
+          <button>Download Log File</button>
+        </a>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap' }}>
-        {['C', 'D', 'E', 'X'].map((prefix) => renderColumn(prefix))}
+        {['C', 'D', 'E', 'L', 'X'].map((prefix) => renderColumn(prefix))}
       </div>
     </div>
   );

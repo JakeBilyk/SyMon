@@ -15,7 +15,7 @@ const tankIds = [
   'D13', 'D14', 'D15', 'D16', 'D17', 'D18', 
   'D19', 'D20', 'D21', 'D22', 'D23', 'D24', 
   'D25', 'D26', 'E01', 'E02', 'E03', 'E04', 
-  'E05', 'X01', 'X02', 'X03', 'X04'
+  'E05', 'L01', 'L02', 'X01', 'X02', 'X03', 'X04'
 ];
 const tankIPs = {
   C08: '192.168.0.228',
@@ -56,6 +56,7 @@ const tankIPs = {
   E04: '192.168.0.202',
   E05: '192.168.0.200',
   L01: '192.168.0.237',
+  L02: '192.168.0.225',
   X01: '192.168.0.254',
   X02: '192.168.0.244',
   X03: '192.168.0.218',
@@ -64,7 +65,16 @@ const tankIPs = {
 
 // Function to log data to a file
 function logDataToFile(tankId, pH, temperature) {
-  const timestamp = new Date().toISOString();
+  const timestamp = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Pacific/Honolulu',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date());
+
   const logEntry = `${timestamp} - Tank ${tankId}: pH=${pH}, Temperature=${temperature}°C\n`;
   fs.appendFile(logFilePath, logEntry, (err) => {
     if (err) console.error('Failed to write log entry:', err);
@@ -83,7 +93,7 @@ function getModbusData(ip, register) {
     const client = new net.Socket();
     const modbusClient = new Modbus.client.TCP(client, 1);
 
-    client.setTimeout(10000);
+    client.setTimeout(20000);
     client.connect(502, ip, () => {
       modbusClient.readHoldingRegisters(register, 2)
         .then((resp) => {
@@ -99,17 +109,32 @@ function getModbusData(ip, register) {
     });
 
     client.on('timeout', () => {
-      console.error(`Connection timed out for IP ${ip}`);
-      client.destroy();
+      console.warn(`Timeout for IP ${ip}`);
+      client.destroy(); // Ensure the connection is closed
       reject(new Error('Connection timed out'));
     });
+    
   });
 }
 
-// Staggered fetch to log data
-function staggeredFetch(tankIds, delay = 2000) {
-  tankIds.forEach((tankId, index) => {
-    setTimeout(async () => {
+// Continuous fetch function for logging data
+function continuousFetch(tankIds, delay = 900000) { // 900,000ms = 15 minutes
+  function getHawaiiTime() {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Pacific/Honolulu',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date());
+  }
+
+  async function fetchAndLog() {
+    console.log(`Starting data logging cycle at ${getHawaiiTime()}`);
+    for (let i = 0; i < tankIds.length; i++) {
+      const tankId = tankIds[i];
       try {
         const pH = await getModbusData(tankIPs[tankId], 20);
         const temperature = await getModbusData(tankIPs[tankId], 22);
@@ -117,10 +142,19 @@ function staggeredFetch(tankIds, delay = 2000) {
       } catch (err) {
         console.error(`Error fetching data for tank ${tankId}:`, err.message);
       }
-    }, index * delay);
-  });
+    }
+    console.log(`Finished data logging cycle at ${getHawaiiTime()}`);
+  }
+
+  // Run the fetchAndLog function immediately and at the specified interval
+  fetchAndLog(); // Run the first cycle immediately
+  setInterval(fetchAndLog, delay);
 }
-staggeredFetch(tankIds);
+
+
+// Start continuous logging every 15 minutes
+continuousFetch(tankIds);
+
 
 // API route to get tank data
 app.get('/tank/:id/data', async (req, res) => {
@@ -145,6 +179,17 @@ app.use(express.static(path.join(__dirname, 'build')));
 // Serve React app for all routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+// Serve the log file
+app.get('/download-log', (req, res) => {
+  const logFilePath = path.join(__dirname, 'tank-data-log.txt'); // Path to the log file
+  res.download(logFilePath, 'tank-data-log.txt', (err) => {
+    if (err) {
+      console.error('Error while sending log file:', err);
+      res.status(500).send('Error downloading the log file.');
+    }
+  });
 });
 
 // Start the server
