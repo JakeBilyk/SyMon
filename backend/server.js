@@ -173,14 +173,6 @@ app.get('/tank/:id/data', async (req, res) => {
   }
 });
 
-// Serve static files from the React build folder
-app.use(express.static(path.join(__dirname, 'build')));
-
-// Serve React app for all routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'build', 'index.html'));
-});
-
 // Serve the log file
 app.get('/download-log', (req, res) => {
   const logFilePath = path.join(__dirname, 'tank-data-log.txt'); // Path to the log file
@@ -190,6 +182,14 @@ app.get('/download-log', (req, res) => {
       res.status(500).send('Error downloading the log file.');
     }
   });
+});
+
+// Serve static files from the React build folder
+app.use(express.static(path.join(__dirname, 'build')));
+
+// Serve React app for all routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 // Start the server
