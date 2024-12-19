@@ -4,7 +4,8 @@ const Modbus = require('jsmodbus');
 const fs = require('fs');
 const path = require('path');
 const app = express();
-const port = 5000;
+const port = 3000;
+const nodemailer = require('nodemailer');
 const logFilePath = path.join(__dirname, 'tank-data-log.txt');
 
 // Tank IDs and IP mapping
@@ -17,6 +18,7 @@ const tankIds = [
   'D25', 'D26', 'E01', 'E02', 'E03', 'E04', 
   'E05', 'L01', 'L02', 'X01', 'X02', 'X03', 'X04'
 ];
+
 const tankIPs = {
   C08: '192.168.0.228',
   C12: '192.168.0.220',
@@ -62,6 +64,57 @@ const tankIPs = {
   X03: '192.168.0.218',
   X04: '192.168.0.251'
       };
+
+const thresholds = {
+  pH: { min: 6.5, max: 8.5},
+  temperature: { min: 18.5, max: 26 }
+};
+
+const emailConfig = {
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: 'kaimanalii@gmail.com',
+    pass: 'qdsy qlqh ayim xktg'
+  }
+};
+
+const transporter = nodemailer.createTransport(emailConfig);
+
+// Function to check if values are out of range
+function checkIfOutOfRange(pH, temperature) {
+  return (
+    pH < thresholds.pH.min || pH > thresholds.pH.max ||
+    temperature < thresholds.temperature.min || temperature > thresholds.temperature.max
+  );
+}
+
+function sendAlarmNotification(tankId, pH, temperature) {
+  const message = {
+    from: 'kaimanalii@gmail.com',
+    to: 'tiffany@symbrosia.co',
+    subject: `ALARM: Tank ${tankId} Out of Range`,
+    text: `Tank ${tankId} has out-of-range values:\n\n` +
+          `pH: ${pH.toFixed(1)} (Safe Range: ${thresholds.pH.min} - ${thresholds.pH.max})\n` +
+          `Temperature: ${temperature.toFixed(1)}°C (Safe Range: ${thresholds.temperature.min} - ${thresholds.temperature.max})`
+  };
+
+  transporter.sendMail(message, (err, info) => {
+    if (err) {
+      console.error(`Failed to send alarm notification: ${err.message}`);
+    } else {
+      console.log(`Alarm notification sent for tank ${tankId}: ${info.response}`);
+    }
+  });
+}
+
+function monitorTank(tankId, pH, temperature) {
+  if (checkIfOutOfRange(pH, temperature)) {
+    console.warn(`ALARM: Tank ${tankId} has out-of-range values!`);
+    sendAlarmNotification(tankId, pH, temperature);
+  }
+}
 
 // Function to log data to a file
 function logDataToFile(tankId, pH, temperature) {
@@ -139,6 +192,7 @@ function continuousFetch(tankIds, delay = 900000) { // 900,000ms = 15 minutes
         const pH = await getModbusData(tankIPs[tankId], 20);
         const temperature = await getModbusData(tankIPs[tankId], 22);
         logDataToFile(tankId, pH.toFixed(1), temperature.toFixed(1));
+        monitorTank(tankId, pH, temperature);
       } catch (err) {
         console.error(`Error fetching data for tank ${tankId}:`, err.message);
       }
@@ -151,10 +205,8 @@ function continuousFetch(tankIds, delay = 900000) { // 900,000ms = 15 minutes
   setInterval(fetchAndLog, delay);
 }
 
-
 // Start continuous logging every 15 minutes
 continuousFetch(tankIds);
-
 
 // API route to get tank data
 app.get('/tank/:id/data', async (req, res) => {
@@ -196,4 +248,3 @@ app.get('*', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`Backend listening at http://0.0.0.0:${port}`);
 });
-
