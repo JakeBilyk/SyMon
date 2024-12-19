@@ -4,7 +4,7 @@ const Modbus = require('jsmodbus');
 const fs = require('fs');
 const path = require('path');
 const app = express();
-const port = 3000;
+const port = 3000; // Tester port, change back to 5000 when going live
 const nodemailer = require('nodemailer');
 const logFilePath = path.join(__dirname, 'tank-data-log.txt');
 
@@ -65,11 +65,14 @@ const tankIPs = {
   X04: '192.168.0.251'
       };
 
+// pH and temperature thresholds
 const thresholds = {
   pH: { min: 6.5, max: 8.5},
   temperature: { min: 18.5, max: 26 }
 };
 
+// Email information, feel free to change to your own account
+// If you have questions about generating a secure password, let me know! (Was stuck for a while lol)
 const emailConfig = {
   host: 'smtp.gmail.com',
   port: 587,
@@ -90,6 +93,7 @@ function checkIfOutOfRange(pH, temperature) {
   );
 }
 
+// Send out alarms, change email addresses accordingly
 function sendAlarmNotification(tankId, pH, temperature) {
   const message = {
     from: 'kaimanalii@gmail.com',
@@ -109,6 +113,7 @@ function sendAlarmNotification(tankId, pH, temperature) {
   });
 }
 
+// Tank monitor
 function monitorTank(tankId, pH, temperature) {
   if (checkIfOutOfRange(pH, temperature)) {
     console.warn(`ALARM: Tank ${tankId} has out-of-range values!`);
