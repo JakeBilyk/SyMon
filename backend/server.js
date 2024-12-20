@@ -78,8 +78,8 @@ const emailConfig = {
   port: 587,
   secure: false,
   auth: {
-    user: 'kaimanalii@gmail.com',
-    pass: 'qdsy qlqh ayim xktg'
+    user: 'Email address goes here',
+    pass: 'Password goes here'
   }
 };
 
