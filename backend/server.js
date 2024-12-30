@@ -68,7 +68,7 @@ const tankIPs = {
 // pH and temperature thresholds
 const thresholds = {
   pH: { min: 6.5, max: 8.5},
-  temperature: { min: 18.5, max: 26 }
+  temperature: { min: 18.5, max: 27 }
 };
 
 // Email information, feel free to change to your own account
@@ -78,8 +78,8 @@ const emailConfig = {
   port: 587,
   secure: false,
   auth: {
-    user: 'Email address goes here',
-    pass: 'Password goes here'
+    user: 'User email',
+    pass: 'User password'
   }
 };
 
@@ -96,8 +96,8 @@ function checkIfOutOfRange(pH, temperature) {
 // Send out alarms, change email addresses accordingly
 function sendAlarmNotification(tankId, pH, temperature) {
   const message = {
-    from: 'kaimanalii@gmail.com',
-    to: 'tiffany@symbrosia.co',
+    from: 'User sending out alarm',
+    to: 'List of recipients',
     subject: `ALARM: Tank ${tankId} Out of Range`,
     text: `Tank ${tankId} has out-of-range values:\n\n` +
           `pH: ${pH.toFixed(1)} (Safe Range: ${thresholds.pH.min} - ${thresholds.pH.max})\n` +
