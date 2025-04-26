@@ -9,6 +9,7 @@ const port = 5000;
 const tankIPs = require('./tankConfig');
 const tankIds = Object.keys(tankIPs);
 const logFilePath = path.join(__dirname, 'tank-data-log.csv');
+const { logDataToGoogleSheets } = require('./googleSheetsConnector');
 
 // Ensure the log file has a header if it doesn't exist
 if (!fs.existsSync(logFilePath)) {
@@ -80,6 +81,7 @@ function continuousFetch(tankIds, delay = 900000) {
         const pH = await getModbusData(tankIPs[tankId], 20);
         const temperature = await getModbusData(tankIPs[tankId], 22);
         logDataToFile(tankId, pH.toFixed(1), temperature.toFixed(1));
+        logDataToGoogleSheets(tankId, pH.toFixed(1), temperature.toFixed(1));
       } catch (err) {
         console.error(`Error fetching data for tank ${tankId}:`, err.message);
       }
