@@ -12,21 +12,21 @@ const logFilePath = path.join(__dirname, 'tank-data-log.csv');
 
 // Ensure the log file has a header if it doesn't exist
 if (!fs.existsSync(logFilePath)) {
-  const header = 'Timestamp,Tank ID,pH,Temperature (\u00b0C)\n';
+  const header = 'Timestamp,Tank ID,pH,Temperature (°C)\n';
   fs.writeFileSync(logFilePath, header);
 }
 
 // Function to log data to a CSV file
 function logDataToFile(tankId, pH, temperature) {
-  const timestamp = new Intl.DateTimeFormat('en-US', {
+  const now = new Date();
+  const timestamp = now.toLocaleString('en-US', {
     timeZone: 'Pacific/Honolulu',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date());
+    minute: '2-digit'
+  }).replace(/\//g, '-').replace(',', '');
 
   const logEntry = `${timestamp},${tankId},${pH},${temperature}\n`;
 
