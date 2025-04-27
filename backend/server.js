@@ -9,27 +9,32 @@ const port = 5000;
 const tankIPs = require('./tankConfig');
 const tankIds = Object.keys(tankIPs);
 const logFilePath = path.join(__dirname, 'tank-data-log.csv');
-const { logDataToGoogleSheets } = require('./googleSheetsConnector');
 
-// Ensure the log file has a header if it doesn't exist
-if (!fs.existsSync(logFilePath)) {
-  const header = 'Timestamp,Tank ID,pH,Temperature (°C)\n';
-  fs.writeFileSync(logFilePath, header);
-}
-
-// Function to log data to a CSV file
-function logDataToFile(tankId, pH, temperature) {
+// Helper function to format timestamp with Hawaii timezone
+function getFormattedTimestamp() {
   const now = new Date();
-  const timestamp = now.toLocaleString('en-US', {
+  return now.toLocaleString('en-US', {
     timeZone: 'Pacific/Honolulu',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
-  }).replace(/\//g, '-').replace(',', '');
+    minute: '2-digit',
+    hour12: false
+  }).replace(',', '').replace(/\//g, '-');
+}
 
-  const logEntry = `${timestamp},${tankId},${pH},${temperature}\n`;
+// Ensure the log file has a header if it doesn't exist
+if (!fs.existsSync(logFilePath)) {
+  const header = 'Timestamp,Tank ID,pH,Temperature (°C),CO2 Timer (s)\n';
+  fs.writeFileSync(logFilePath, header);
+}
+
+// Function to log data to a CSV file
+function logDataToFile(tankId, pH, temperature, co2Time) {
+  const timestamp = getFormattedTimestamp();
+
+  const logEntry = `${timestamp},${tankId},${pH},${temperature},${co2Time}\n`;
 
   fs.appendFile(logFilePath, logEntry, (err) => {
     if (err) console.error('Failed to write log entry:', err);
@@ -42,7 +47,7 @@ function decodeModbusFloat(buffer) {
   return swappedBuffer.readFloatBE(0);
 }
 
-// Function to get Modbus data
+// Function to get Modbus data (pH and Temp)
 function getModbusData(ip, register) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
@@ -71,23 +76,54 @@ function getModbusData(ip, register) {
   });
 }
 
+// Function to get CO2 Timer data
+function getCO2Timer(ip) {
+  return new Promise((resolve, reject) => {
+    const client = new net.Socket();
+    const modbusClient = new Modbus.client.TCP(client, 1);
+
+    client.setTimeout(20000);
+    client.connect(502, ip, () => {
+      modbusClient.readHoldingRegisters(155, 2)
+        .then((resp) => {
+          const buffer = resp.response._body.valuesAsBuffer;
+          const co2Time = buffer.readInt32BE(0);
+          resolve(co2Time);
+        })
+        .catch((err) => reject(err));
+    });
+
+    client.on('error', (err) => {
+      console.error(`Connection error for IP ${ip}:`, err.message);
+      reject(err);
+    });
+
+    client.on('timeout', () => {
+      console.warn(`Timeout for IP ${ip}`);
+      client.destroy();
+      reject(new Error('Connection timed out'));
+    });
+  });
+}
+
 // Continuous fetch and logging every 15 minutes
 function continuousFetch(tankIds, delay = 900000) {
   async function fetchAndLog() {
-    console.log(`Starting data logging cycle at ${new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' })}`);
+    console.log(`Starting data logging cycle at ${getFormattedTimestamp()}`);
 
     for (const tankId of tankIds) {
       try {
         const pH = await getModbusData(tankIPs[tankId], 20);
         const temperature = await getModbusData(tankIPs[tankId], 22);
-        logDataToFile(tankId, pH.toFixed(1), temperature.toFixed(1));
-        logDataToGoogleSheets(tankId, pH.toFixed(1), temperature.toFixed(1));
+        const co2Time = await getCO2Timer(tankIPs[tankId]);
+
+        logDataToFile(tankId, pH.toFixed(1), temperature.toFixed(1), co2Time);
       } catch (err) {
         console.error(`Error fetching data for tank ${tankId}:`, err.message);
       }
     }
 
-    console.log(`Finished data logging cycle at ${new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' })}`);
+    console.log(`Finished data logging cycle at ${getFormattedTimestamp()}`);
   }
 
   fetchAndLog();
