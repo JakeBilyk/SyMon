@@ -50,6 +50,7 @@ function Dashboard() {
               <th>Tank ID</th>
               <th>pH</th>
               <th>Temperature (°C)</th>
+              <th>Timestamp (HST)</th>
             </tr>
           </thead>
           <tbody>
@@ -65,6 +66,7 @@ function Dashboard() {
                 >
                   {tank.temperature}
                 </td>
+                <td>{tank.timestamp ? new Date(tank.timestamp).toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }) : '—'}</td>
               </tr>
             ))}
           </tbody>
