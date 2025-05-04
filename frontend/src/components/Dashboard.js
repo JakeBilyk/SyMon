@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import NextLogCountdown from './NextLogCountdown';
 
 function Dashboard() {
   const [tankData, setTankData] = useState([]);
   const [liveTanks, setLiveTanks] = useState({});
   const [prefixes, setPrefixes] = useState([]);
+  const scrollContainerRef = useRef(null);
+  const scrollDirection = useRef(1);
 
   useEffect(() => {
     fetch('/api/liveTanks')
@@ -35,6 +37,24 @@ function Dashboard() {
       fetchTankData();
     }
   }, [liveTanks]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const scrollStep = 1;
+    const scrollInterval = 75;
+
+    const interval = setInterval(() => {
+      if (container.scrollTop + container.clientHeight >= container.scrollHeight) {
+        scrollDirection.current = -1;
+      } else if (container.scrollTop <= 0) {
+        scrollDirection.current = 1;
+      }
+      container.scrollTop += scrollStep * scrollDirection.current;
+    }, scrollInterval);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const groupTanksByPrefix = (prefix) => {
     return tankData.filter((tank) => tank.id.startsWith(prefix));
@@ -94,7 +114,17 @@ function Dashboard() {
           <button>Download Log File</button>
         </a>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap' }}>
+      <div
+        ref={scrollContainerRef}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-around',
+          flexWrap: 'wrap',
+          height: '75vh',
+          overflowY: 'auto',
+          scrollBehavior: 'smooth',
+        }}
+      >
         {prefixes.map((prefix) => renderColumn(prefix))}
       </div>
     </div>
