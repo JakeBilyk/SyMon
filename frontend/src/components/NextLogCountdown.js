@@ -3,7 +3,6 @@ import React, { useEffect, useState } from 'react';
 function NextLogCountdown() {
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [lastLogTime, setLastLogTime] = useState(null);
-  const [nextLogTime, setNextLogTime] = useState(null);
 
   useEffect(() => {
     async function fetchLogTime() {
@@ -11,7 +10,6 @@ function NextLogCountdown() {
         const res = await fetch('/api/nextLogTime');
         const data = await res.json();
         setLastLogTime(data.lastLogTime);
-        setNextLogTime(data.nextLogTime);
         setTimeRemaining(data.timeRemaining);
       } catch (err) {
         console.error('Failed to fetch next log time:', err);

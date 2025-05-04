@@ -1,4 +1,4 @@
-// Fully updated server.js with /api/liveTanks, pH alarm at 8.9, and /tank/:id/data using log fallback
+// Fully updated server.js with dynamic alarmConfig
 const express = require('express');
 const net = require('net');
 const Modbus = require('jsmodbus');
@@ -15,6 +15,7 @@ const tankIPs = require('./tankConfig');
 const tankIds = Object.keys(tankIPs);
 const logFilePath = path.join(__dirname, 'tank-data-log.csv');
 const liveTanksPath = path.join(__dirname, 'liveTanks.json');
+const alarmConfigPath = path.join(__dirname, 'alarmConfig.json');
 
 let lastLogTime = null;
 let nextLogTime = null;
@@ -48,6 +49,21 @@ if (fs.existsSync(liveTanksPath)) {
 tankIds.forEach((id) => { if (!(id in liveTanks)) liveTanks[id] = true; });
 Object.keys(liveTanks).forEach((id) => { if (!tankIds.includes(id)) delete liveTanks[id]; });
 fs.writeFileSync(liveTanksPath, JSON.stringify(liveTanks, null, 2));
+
+let alarmConfig = {
+  pHHigh: 8.9,
+  pHLow: 7.0,
+  tempHigh: 27.5,
+  tempLow: 20.0,
+  subscribers: 'alerts@symbrosia.co'
+};
+if (fs.existsSync(alarmConfigPath)) {
+  try {
+    alarmConfig = JSON.parse(fs.readFileSync(alarmConfigPath, 'utf8'));
+  } catch (err) {
+    console.error('Error reading alarmConfig.json:', err);
+  }
+}
 
 function decodeModbusFloat(buffer) {
   const swappedBuffer = Buffer.from([buffer[2], buffer[3], buffer[0], buffer[1]]);
@@ -124,7 +140,7 @@ const alertedTanks = new Set();
 function sendAlarmEmail(tankId, alarmType, value) {
   const mailOptions = {
     from: process.env.ALERT_EMAIL_USER,
-    to: process.env.ALERT_EMAIL_RECIPIENTS,
+    to: alarmConfig.subscribers,
     subject: `🚨 Alarm: ${alarmType} - ${tankId}`,
     text: `Alarm triggered on ${tankId}: ${alarmType} = ${value}\n\nCheck the tank controller.`,
   };
@@ -149,18 +165,26 @@ function continuousFetch(tankIds, delay = 900000) {
 
         logDataToFile(tankId, pH.toFixed(1), temperature.toFixed(1), co2Time);
 
-        if (pH > 8.9 && !alertedTanks.has(`${tankId}-pH`)) {
+        if (pH > alarmConfig.pHHigh && !alertedTanks.has(`${tankId}-pH-high`)) {
           sendAlarmEmail(tankId, 'High pH', pH.toFixed(1));
-          alertedTanks.add(`${tankId}-pH`);
-        } else if (pH <= 8.9) {
-          alertedTanks.delete(`${tankId}-pH`);
+          alertedTanks.add(`${tankId}-pH-high`);
+        } else if (pH < alarmConfig.pHLow && !alertedTanks.has(`${tankId}-pH-low`)) {
+          sendAlarmEmail(tankId, 'Low pH', pH.toFixed(1));
+          alertedTanks.add(`${tankId}-pH-low`);
+        } else {
+          alertedTanks.delete(`${tankId}-pH-high`);
+          alertedTanks.delete(`${tankId}-pH-low`);
         }
 
-        if (temperature > 26.5 && !alertedTanks.has(`${tankId}-temp`)) {
+        if (temperature > alarmConfig.tempHigh && !alertedTanks.has(`${tankId}-temp-high`)) {
           sendAlarmEmail(tankId, 'High Temperature', temperature.toFixed(1));
-          alertedTanks.add(`${tankId}-temp`);
-        } else if (temperature <= 26.5) {
-          alertedTanks.delete(`${tankId}-temp`);
+          alertedTanks.add(`${tankId}-temp-high`);
+        } else if (temperature < alarmConfig.tempLow && !alertedTanks.has(`${tankId}-temp-low`)) {
+          sendAlarmEmail(tankId, 'Low Temperature', temperature.toFixed(1));
+          alertedTanks.add(`${tankId}-temp-low`);
+        } else {
+          alertedTanks.delete(`${tankId}-temp-high`);
+          alertedTanks.delete(`${tankId}-temp-low`);
         }
 
       } catch (err) {
@@ -176,6 +200,16 @@ function continuousFetch(tankIds, delay = 900000) {
 }
 
 continuousFetch(tankIds);
+
+app.get('/api/alarmConfig', (req, res) => {
+  res.json(alarmConfig);
+});
+
+app.post('/api/alarmConfig', (req, res) => {
+  alarmConfig = req.body;
+  fs.writeFileSync(alarmConfigPath, JSON.stringify(alarmConfig, null, 2));
+  res.json({ message: 'Alarm configuration updated.' });
+});
 
 app.get('/api/nextLogTime', (req, res) => {
   res.json({

@@ -2,79 +2,84 @@ import React, { useEffect, useState } from 'react';
 
 function LiveTankSelector() {
   const [liveTanks, setLiveTanks] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  // Group tank IDs by prefix
-  const grouped = Object.entries(liveTanks).reduce((acc, [id, status]) => {
-    const prefix = id.charAt(0);
-    if (!acc[prefix]) acc[prefix] = [];
-    acc[prefix].push({ id, status });
-    return acc;
-  }, {});
+  const [alarmConfig, setAlarmConfig] = useState({
+    pHHigh: 8.9,
+    pHLow: 7.0,
+    tempHigh: 27.5,
+    tempLow: 20.0,
+    subscribers: ''
+  });
 
   useEffect(() => {
     fetch('/api/liveTanks')
-      .then((res) => res.json())
-      .then((data) => {
-        setLiveTanks(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to load live tanks:', err);
-        setLoading(false);
-      });
+      .then(res => res.json())
+      .then(setLiveTanks);
+
+    fetch('/api/alarmConfig')
+      .then(res => res.json())
+      .then(setAlarmConfig);
   }, []);
 
-  const toggleTank = (id) => {
-    setLiveTanks((prev) => ({ ...prev, [id]: !prev[id] }));
+  const handleToggle = (id) => {
+    setLiveTanks(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const saveChanges = () => {
-    setSaving(true);
+  const handleAlarmChange = (e) => {
+    const { name, value } = e.target;
+    setAlarmConfig(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSave = () => {
     fetch('/api/liveTanks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(liveTanks),
-    })
-      .then((res) => res.json())
-      .then(() => {
-        setSaving(false);
-        alert('✅ Saved successfully');
-      })
-      .catch((err) => {
-        console.error('Failed to save:', err);
-        setSaving(false);
-        alert('❌ Failed to save');
-      });
+    });
+
+    fetch('/api/alarmConfig', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(alarmConfig),
+    });
   };
 
-  if (loading) return <p>Loading...</p>;
-
   return (
-    <div style={{ padding: '1rem' }}>
-      <h2>Live Tank Selection</h2>
-      <p>Select which tanks are currently active ("Live").</p>
-      {Object.entries(grouped).map(([prefix, tanks]) => (
-        <div key={prefix} style={{ marginBottom: '1rem' }}>
-          <h4>Pad {prefix}</h4>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {tanks.map(({ id, status }) => (
-              <label key={id} style={{ minWidth: '60px' }}>
-                <input
-                  type="checkbox"
-                  checked={status}
-                  onChange={() => toggleTank(id)}
-                />{' '}
-                {id}
-              </label>
-            ))}
-          </div>
-        </div>
-      ))}
-      <button onClick={saveChanges} disabled={saving}>
-        {saving ? 'Saving...' : 'Save Changes'}
-      </button>
+    <div style={{ padding: '20px' }}>
+      <h2>Live Tank Selector</h2>
+      <ul>
+        {Object.entries(liveTanks).map(([id, isLive]) => (
+          <li key={id}>
+            <label>
+              <input type="checkbox" checked={isLive} onChange={() => handleToggle(id)} />
+              {id}
+            </label>
+          </li>
+        ))}
+      </ul>
+
+      <h3>Alarm Thresholds</h3>
+      <label>
+        pH High:
+        <input type="number" step="0.1" name="pHHigh" value={alarmConfig.pHHigh} onChange={handleAlarmChange} />
+      </label><br />
+      <label>
+        pH Low:
+        <input type="number" step="0.1" name="pHLow" value={alarmConfig.pHLow} onChange={handleAlarmChange} />
+      </label><br />
+      <label>
+        Temp High (°C):
+        <input type="number" step="0.1" name="tempHigh" value={alarmConfig.tempHigh} onChange={handleAlarmChange} />
+      </label><br />
+      <label>
+        Temp Low (°C):
+        <input type="number" step="0.1" name="tempLow" value={alarmConfig.tempLow} onChange={handleAlarmChange} />
+      </label><br />
+      <label>
+        Alert Recipients (comma separated emails):
+        <input type="text" name="subscribers" value={alarmConfig.subscribers} onChange={handleAlarmChange} style={{ width: '100%' }} />
+      </label><br /><br />
+
+      <button onClick={handleSave}>Save Changes</button>
     </div>
   );
 }

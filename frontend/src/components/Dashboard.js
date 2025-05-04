@@ -24,7 +24,8 @@ function Dashboard() {
         liveTankIds.map(async (id) => {
           const response = await fetch(`/tank/${id}/data`);
           const data = await response.json();
-          return { id, ...data };
+          const isStale = data.timestamp ? (Date.now() - new Date(data.timestamp)) > 16 * 60 * 1000 : true;
+          return { id, ...data, isStale };
         })
       );
       setTankData(allData);
@@ -49,26 +50,35 @@ function Dashboard() {
             <tr>
               <th>Tank ID</th>
               <th>pH</th>
-              <th>Temperature (°C)</th>
-              <th>Timestamp (HST)</th>
+              <th>(°C)</th>
             </tr>
           </thead>
           <tbody>
-            {tanks.map((tank) => (
-              <tr key={tank.id}>
-                <td>{tank.id}</td>
-                <td>{tank.pH}</td>
-                <td
-                  style={{
-                    backgroundColor: tank.temperature > 26 ? 'red' : 'white',
-                    color: tank.temperature > 26 ? 'white' : 'black',
-                  }}
+            {tanks.map((tank) => {
+              const phStyle =
+                tank.pH > 8.9 ? { backgroundColor: 'orange' } :
+                tank.pH < 7.0 ? { backgroundColor: 'yellow' } : {};
+              const tempStyle =
+                tank.temperature > 27.5 ? { backgroundColor: 'red', color: 'white' } :
+                tank.temperature < 20 ? { backgroundColor: 'lightblue' } : {};
+
+              const flag = tank.isStale ? (
+                <span
+                  title={`Last update: ${tank.timestamp ? new Date(tank.timestamp).toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }) : 'Unknown'}`}
+                  style={{ marginLeft: '6px', color: 'orange' }}
                 >
-                  {tank.temperature}
-                </td>
-                <td>{tank.timestamp ? new Date(tank.timestamp).toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }) : '—'}</td>
-              </tr>
-            ))}
+                  ⚠️
+                </span>
+              ) : null;
+
+              return (
+                <tr key={tank.id} style={tank.isStale ? { opacity: 0.5 } : {}}>
+                  <td>{tank.id}{flag}</td>
+                  <td style={phStyle}>{tank.pH}</td>
+                  <td style={tempStyle}>{tank.temperature}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
