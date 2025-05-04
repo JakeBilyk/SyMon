@@ -1,16 +1,24 @@
+// Fully updated server.js with /api/liveTanks, pH alarm at 8.9, and /tank/:id/data using log fallback
 const express = require('express');
 const net = require('net');
 const Modbus = require('jsmodbus');
 const fs = require('fs');
 const path = require('path');
+const nodemailer = require('nodemailer');
+require('dotenv').config();
+
 const app = express();
 const port = 5000;
+app.use(express.json());
 
 const tankIPs = require('./tankConfig');
 const tankIds = Object.keys(tankIPs);
 const logFilePath = path.join(__dirname, 'tank-data-log.csv');
+const liveTanksPath = path.join(__dirname, 'liveTanks.json');
 
-// Helper function to format timestamp with Hawaii timezone
+let lastLogTime = null;
+let nextLogTime = null;
+
 function getFormattedTimestamp() {
   const now = new Date();
   return now.toLocaleString('en-US', {
@@ -24,30 +32,28 @@ function getFormattedTimestamp() {
   }).replace(',', '').replace(/\//g, '-');
 }
 
-// Ensure the log file has a header if it doesn't exist
 if (!fs.existsSync(logFilePath)) {
   const header = 'Timestamp,Tank ID,pH,Temperature (°C),CO2 Timer (s)\n';
   fs.writeFileSync(logFilePath, header);
 }
 
-// Function to log data to a CSV file
-function logDataToFile(tankId, pH, temperature, co2Time) {
-  const timestamp = getFormattedTimestamp();
-
-  const logEntry = `${timestamp},${tankId},${pH},${temperature},${co2Time}\n`;
-
-  fs.appendFile(logFilePath, logEntry, (err) => {
-    if (err) console.error('Failed to write log entry:', err);
-  });
+let liveTanks = {};
+if (fs.existsSync(liveTanksPath)) {
+  try {
+    liveTanks = JSON.parse(fs.readFileSync(liveTanksPath, 'utf8'));
+  } catch (err) {
+    console.error('Error reading liveTanks.json:', err);
+  }
 }
+tankIds.forEach((id) => { if (!(id in liveTanks)) liveTanks[id] = true; });
+Object.keys(liveTanks).forEach((id) => { if (!tankIds.includes(id)) delete liveTanks[id]; });
+fs.writeFileSync(liveTanksPath, JSON.stringify(liveTanks, null, 2));
 
-// Decode IEEE 754 float from Modbus buffer
 function decodeModbusFloat(buffer) {
   const swappedBuffer = Buffer.from([buffer[2], buffer[3], buffer[0], buffer[1]]);
   return swappedBuffer.readFloatBE(0);
 }
 
-// Function to get Modbus data (pH and Temp)
 function getModbusData(ip, register) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
@@ -60,23 +66,17 @@ function getModbusData(ip, register) {
           const buffer = resp.response._body.valuesAsBuffer;
           resolve(decodeModbusFloat(buffer));
         })
-        .catch((err) => reject(err));
+        .catch(reject);
     });
 
-    client.on('error', (err) => {
-      console.error(`Connection error for IP ${ip}:`, err.message);
-      reject(err);
-    });
-
+    client.on('error', reject);
     client.on('timeout', () => {
-      console.warn(`Timeout for IP ${ip}`);
       client.destroy();
       reject(new Error('Connection timed out'));
     });
   });
 }
 
-// Function to get CO2 Timer data
 function getCO2Timer(ip) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
@@ -90,34 +90,79 @@ function getCO2Timer(ip) {
           const co2Time = buffer.readInt32BE(0);
           resolve(co2Time);
         })
-        .catch((err) => reject(err));
+        .catch(reject);
     });
 
-    client.on('error', (err) => {
-      console.error(`Connection error for IP ${ip}:`, err.message);
-      reject(err);
-    });
-
+    client.on('error', reject);
     client.on('timeout', () => {
-      console.warn(`Timeout for IP ${ip}`);
       client.destroy();
       reject(new Error('Connection timed out'));
     });
   });
 }
 
-// Continuous fetch and logging every 15 minutes
+function logDataToFile(tankId, pH, temperature, co2Time) {
+  const timestamp = getFormattedTimestamp();
+  const logEntry = `${timestamp},${tankId},${pH},${temperature},${co2Time}\n`;
+  fs.appendFile(logFilePath, logEntry, (err) => {
+    if (err) console.error('Failed to write log entry:', err);
+  });
+  lastLogTime = Date.now();
+  nextLogTime = lastLogTime + 15 * 60 * 1000;
+}
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.ALERT_EMAIL_USER,
+    pass: process.env.ALERT_EMAIL_PASS,
+  },
+});
+
+const alertedTanks = new Set();
+
+function sendAlarmEmail(tankId, alarmType, value) {
+  const mailOptions = {
+    from: process.env.ALERT_EMAIL_USER,
+    to: process.env.ALERT_EMAIL_RECIPIENTS,
+    subject: `🚨 Alarm: ${alarmType} - ${tankId}`,
+    text: `Alarm triggered on ${tankId}: ${alarmType} = ${value}\n\nCheck the tank controller.`,
+  };
+
+  transporter.sendMail(mailOptions, (err, info) => {
+    if (err) return console.error('Email failed:', err);
+    console.log(`✅ Email sent for ${tankId} (${alarmType}) → ${info.accepted.join(', ')}`);
+  });
+}
+
 function continuousFetch(tankIds, delay = 900000) {
   async function fetchAndLog() {
     console.log(`Starting data logging cycle at ${getFormattedTimestamp()}`);
 
     for (const tankId of tankIds) {
+      if (!liveTanks[tankId]) continue;
+
       try {
         const pH = await getModbusData(tankIPs[tankId], 20);
         const temperature = await getModbusData(tankIPs[tankId], 22);
         const co2Time = await getCO2Timer(tankIPs[tankId]);
 
         logDataToFile(tankId, pH.toFixed(1), temperature.toFixed(1), co2Time);
+
+        if (pH > 8.9 && !alertedTanks.has(`${tankId}-pH`)) {
+          sendAlarmEmail(tankId, 'High pH', pH.toFixed(1));
+          alertedTanks.add(`${tankId}-pH`);
+        } else if (pH <= 8.9) {
+          alertedTanks.delete(`${tankId}-pH`);
+        }
+
+        if (temperature > 26.5 && !alertedTanks.has(`${tankId}-temp`)) {
+          sendAlarmEmail(tankId, 'High Temperature', temperature.toFixed(1));
+          alertedTanks.add(`${tankId}-temp`);
+        } else if (temperature <= 26.5) {
+          alertedTanks.delete(`${tankId}-temp`);
+        }
+
       } catch (err) {
         console.error(`Error fetching data for tank ${tankId}:`, err.message);
       }
@@ -130,31 +175,55 @@ function continuousFetch(tankIds, delay = 900000) {
   setInterval(fetchAndLog, delay);
 }
 
-// Start continuous logging
 continuousFetch(tankIds);
 
-// API route: Get live tank data
-app.get('/tank/:id/data', async (req, res) => {
-  const tankId = req.params.id;
-  const ip = tankIPs[tankId];
+app.get('/api/nextLogTime', (req, res) => {
+  res.json({
+    lastLogTime,
+    nextLogTime,
+    timeRemaining: nextLogTime ? Math.max(0, nextLogTime - Date.now()) : null
+  });
+});
 
-  if (!ip) return res.status(404).json({ error: 'Tank not found' });
+app.get('/api/liveTanks', (req, res) => {
+  res.json(liveTanks);
+});
+
+app.post('/api/liveTanks', (req, res) => {
+  liveTanks = req.body;
+  fs.writeFileSync(liveTanksPath, JSON.stringify(liveTanks, null, 2));
+  res.json({ message: 'Live tank status updated.' });
+});
+
+app.get('/tank/:id/data', (req, res) => {
+  const tankId = req.params.id;
+  if (!tankId) return res.status(400).json({ error: 'Tank ID is required' });
+
+  if (!fs.existsSync(logFilePath)) {
+    return res.status(404).json({ error: 'No log file found' });
+  }
 
   try {
-    const pH = await getModbusData(ip, 20);
-    const temperature = await getModbusData(ip, 22);
-    res.json({ pH: parseFloat(pH.toFixed(1)), temperature: parseFloat(temperature.toFixed(1)) });
+    const lines = fs.readFileSync(logFilePath, 'utf8').trim().split('\n');
+    const reversed = lines.reverse();
+    for (const line of reversed) {
+      if (line.includes(tankId)) {
+        const [timestamp, id, pH, temperature] = line.split(',');
+        if (id === tankId) {
+          return res.json({ pH: parseFloat(pH), temperature: parseFloat(temperature), timestamp });
+        }
+      }
+    }
+    return res.status(404).json({ error: 'No recent data found for this tank' });
   } catch (err) {
-    res.status(500).json({ error: 'Modbus read failed', details: err.message });
+    return res.status(500).json({ error: 'Error reading log file', details: err.message });
   }
 });
 
-// API route: Get list of tank IDs
 app.get('/tankIds', (req, res) => {
   res.json(tankIds);
 });
 
-// Serve the CSV log file
 app.get('/download-log', (req, res) => {
   res.download(logFilePath, 'tank-data-log.csv', (err) => {
     if (err) {
@@ -164,14 +233,12 @@ app.get('/download-log', (req, res) => {
   });
 });
 
-// Serve static files and frontend
 app.use(express.static(path.join(__dirname, 'build')));
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
-// Start server
 app.listen(port, '0.0.0.0', () => {
   console.log(`Backend listening at http://0.0.0.0:${port}`);
 });

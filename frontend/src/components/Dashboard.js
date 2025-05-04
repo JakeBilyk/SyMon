@@ -1,35 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import '../App.css'; // Make sure to import the CSS for the spinner
+import NextLogCountdown from './NextLogCountdown';
 
 function Dashboard() {
   const [tankData, setTankData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [liveTanks, setLiveTanks] = useState({});
+  const [prefixes, setPrefixes] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/liveTanks')
+      .then((res) => res.json())
+      .then((data) => {
+        setLiveTanks(data);
+        const tankIds = Object.keys(data).filter((id) => data[id]);
+        const uniquePrefixes = [...new Set(tankIds.map((id) => id[0]))];
+        setPrefixes(uniquePrefixes);
+      });
+  }, []);
 
   useEffect(() => {
     const fetchTankData = async () => {
-      try {
-        const tankIdsResponse = await fetch('/tankIds');
-        const tankIds = await tankIdsResponse.json();
-
-        const allData = await Promise.all(
-          tankIds.map(async (id) => {
-            const response = await fetch(`/tank/${id}/data`);
-            const data = await response.json();
-            return { id, ...data };
-          })
-        );
-
-        setTankData(allData);
-        console.log('All tank data:', allData);
-      } catch (error) {
-        console.error('Error fetching tank data:', error);
-      } finally {
-        setLoading(false);
-      }
+      const liveTankIds = Object.keys(liveTanks).filter((id) => liveTanks[id]);
+      const allData = await Promise.all(
+        liveTankIds.map(async (id) => {
+          const response = await fetch(`/tank/${id}/data`);
+          const data = await response.json();
+          return { id, ...data };
+        })
+      );
+      setTankData(allData);
     };
 
-    fetchTankData();
-  }, []);
+    if (Object.keys(liveTanks).length > 0) {
+      fetchTankData();
+    }
+  }, [liveTanks]);
 
   const groupTanksByPrefix = (prefix) => {
     return tankData.filter((tank) => tank.id.startsWith(prefix));
@@ -37,10 +41,9 @@ function Dashboard() {
 
   const renderColumn = (prefix) => {
     const tanks = groupTanksByPrefix(prefix);
-
     return (
       <div key={prefix} style={{ margin: '10px' }}>
-        <h3>Column {prefix}</h3>
+        <h3>Pad {prefix}</h3>
         <table border="1" cellPadding="10" style={{ borderCollapse: 'collapse' }}>
           <thead>
             <tr>
@@ -73,27 +76,15 @@ function Dashboard() {
   return (
     <div>
       <h1>Tank Data Dashboard</h1>
-
-      {loading ? (
-        <div style={{ textAlign: 'center', marginTop: '50px' }}>
-          <h2>Loading tank data...</h2>
-          <div className="spinner"></div>
-        </div>
-      ) : (
-        <>
-          <div style={{ marginBottom: '20px' }}>
-            <a href="/download-log" download>
-              <button>Download Log File</button>
-            </a>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap' }}>
-            {Array.from(new Set(tankData.map((tank) => tank.id.charAt(0))))
-              .sort()
-              .map((prefix) => renderColumn(prefix))}
-          </div>
-        </>
-      )}
+      <NextLogCountdown />
+      <div style={{ marginBottom: '20px' }}>
+        <a href="/download-log" download>
+          <button>Download Log File</button>
+        </a>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap' }}>
+        {prefixes.map((prefix) => renderColumn(prefix))}
+      </div>
     </div>
   );
 }
